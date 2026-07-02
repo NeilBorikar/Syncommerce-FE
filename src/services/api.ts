@@ -3,12 +3,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API = axios.create({
   baseURL: 'https://syncommerce.onrender.com/api/v1',
-  timeout: 15000,
+  timeout: 60000, // Increased timeout for Render free tier cold starts
 });
 
 // Attach token to every request
 API.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem('token');
+  const userToken = await AsyncStorage.getItem('userToken');
+  const businessToken = await AsyncStorage.getItem('businessToken');
+  
+  const token = userToken || businessToken;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

@@ -1,196 +1,223 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Dimensions, TouchableOpacity } from 'react-native';
 import { useAuth } from '../store/AuthContext';
 import { reportService } from '../services/reportService';
-import { Report } from '../types';
-import GradientButton from '../components/GradientButton';
-import { Colors, Radius, Spacing, FontSize } from '../theme/colors';
-import { useWebSocket } from '../store/WebSocketContext';
-import { DollarSign, ShoppingBag } from 'lucide-react-native';
+import { inventoryService } from '../services/inventoryService';
+import { customerService } from '../services/customerService';
+import { SalesReport, InventoryItem, Customer } from '../types';
+import { Colors } from '../theme/colors';
+import { TrendingUp, Package, Users, FileText, AlertCircle, RefreshCw } from 'lucide-react-native';
+import { LineChart } from 'react-native-chart-kit';
+
+const screenWidth = Dimensions.get('window').width;
 
 export default function DashboardScreen({ navigation }: any) {
-  const { user, business_id } = useAuth();
-  const { lastEvent, isConnected } = useWebSocket();
-  const [report, setReport] = useState<Report | null>(null);
+  const { user, business } = useAuth();
+  const [report, setReport] = useState<SalesReport | null>(null);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const fetchReport = async (silent = false) => {
-    if (!business_id) return;
+  const today = new Date().toISOString().split('T')[0];
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const loadDashboard = useCallback(async () => {
+    if (!business?.id) return;
     try {
-      if (!silent) setLoading(true);
-      const data = await reportService.generateReport(business_id);
-      setReport(data);
-    } catch (e) {
-      console.log('Failed to fetch report');
+      setLoading(true);
+      setError('');
+      
+      const [reportData, inventoryData, customerData] = await Promise.allSettled([
+        reportService.getSalesReport(business.id, thirtyDaysAgo, today),
+        inventoryService.getInventory(business.id),
+        customerService.listCustomers(business.id),
+      ]);
+
+      if (reportData.status === 'fulfilled') setReport(reportData.value);
+      if (inventoryData.status === 'fulfilled') setInventory(inventoryData.value);
+      if (customerData.status === 'fulfilled') setCustomers(customerData.value);
+    } catch (e: any) {
+      setError('Failed to load dashboard data');
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
-  };
+  }, [business?.id]);
 
   useEffect(() => {
-    fetchReport();
-  }, [business_id]);
+    loadDashboard();
+  }, [loadDashboard]);
 
-  // Real-time refresh
-  useEffect(() => {
-    if (lastEvent?.type === 'BILL_CREATED') {
-      fetchReport(true); // Silent refresh
-    }
-  }, [lastEvent]);
+  const totalRevenue = report?.total_sales ?? 0;
+  const totalOrders = report?.total_orders ?? 0;
+  const totalProducts = inventory.length;
+  const totalCustomers = customers.length;
+  const lowStockItems = inventory.filter(i => i.quantity <= (i.low_stock_threshold ?? 10));
+
+  const chartLabels = report?.top_products?.slice(0, 5).map(p => p.name.substring(0, 6) + '..') || ['No Data'];
+  const chartData = report?.top_products?.slice(0, 5).map(p => p.revenue) || [0];
+  const hasChartData = report?.top_products && report.top_products.length > 0;
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={styles.headerTop}>
           <View>
-            <Text style={styles.greeting}>Hello, {user?.name} 👋</Text>
-            <Text style={styles.subtitle}>Here is your overview for today</Text>
+            <Text style={styles.greeting}>Welcome, {user?.name?.split(' ')[0]} 👋</Text>
+            <Text style={styles.subtitle}>Last 30 days performance</Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: isConnected ? 'rgba(76, 175, 80, 0.1)' : 'rgba(255, 152, 0, 0.1)' }]}>
-            <View style={[styles.statusDot, { backgroundColor: isConnected ? '#4CAF50' : '#FF9800' }]} />
-            <Text style={[styles.statusText, { color: isConnected ? '#4CAF50' : '#FF9800' }]}>
-              {isConnected ? 'Live' : 'Offline'}
-            </Text>
-          </View>
+          <TouchableOpacity onPress={loadDashboard} style={styles.refreshBtn}>
+            <RefreshCw size={20} color={Colors.primary} />
+          </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView
         contentContainerStyle={styles.scroll}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={fetchReport} tintColor={Colors.accent} />
-        }
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={loadDashboard} tintColor={Colors.primary} />}
       >
-        <View style={styles.metricsGrid}>
-          <LinearGradient colors={Colors.gradientPrimary as [string, string]} style={styles.metricCard}>
-            <DollarSign color="#fff" size={24} />
-            <Text style={styles.metricLabel}>Today's Sales</Text>
-            <Text style={styles.metricValue}>
-              ₹{report?.total_sales.toLocaleString('en-IN') ?? '0'}
+        {error ? (
+          <View style={styles.errorBox}>
+            <AlertCircle color={Colors.danger} size={20} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
+
+        {/* KPI Cards */}
+        <View style={styles.kpiGrid}>
+          <View style={styles.kpiCard}>
+            <TrendingUp size={24} color={Colors.primary} style={styles.kpiIcon} />
+            <Text style={styles.kpiLabel}>Revenue</Text>
+            <Text style={styles.kpiValue}>₹{totalRevenue.toLocaleString()}</Text>
+          </View>
+          <View style={styles.kpiCard}>
+            <FileText size={24} color={Colors.accent} style={styles.kpiIcon} />
+            <Text style={styles.kpiLabel}>Orders</Text>
+            <Text style={styles.kpiValue}>{totalOrders.toLocaleString()}</Text>
+          </View>
+          <View style={styles.kpiCard}>
+            <Users size={24} color={Colors.success} style={styles.kpiIcon} />
+            <Text style={styles.kpiLabel}>Customers</Text>
+            <Text style={styles.kpiValue}>{totalCustomers.toLocaleString()}</Text>
+          </View>
+          <View style={[styles.kpiCard, lowStockItems.length > 0 && { borderColor: Colors.danger }]}>
+            <Package size={24} color={lowStockItems.length > 0 ? Colors.danger : Colors.textMuted} style={styles.kpiIcon} />
+            <Text style={styles.kpiLabel}>Products</Text>
+            <Text style={[styles.kpiValue, lowStockItems.length > 0 && { color: Colors.danger }]}>
+              {totalProducts.toLocaleString()}
             </Text>
-          </LinearGradient>
-
-          <LinearGradient colors={Colors.gradientAccent as [string, string]} style={styles.metricCard}>
-            <ShoppingBag color="#fff" size={24} />
-            <Text style={styles.metricLabel}>Total Orders</Text>
-            <Text style={styles.metricValue}>{report?.total_orders ?? '0'}</Text>
-          </LinearGradient>
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-
-        <GradientButton
-          label="🧾 Create New Bill"
-          onPress={() => navigation.navigate('CreateBill')}
-          style={styles.actionBtn}
-        />
-        
-        <View style={styles.row}>
-          <GradientButton
-            variant="ghost"
-            label="📄 View Drafts"
-            onPress={() => navigation.navigate('Drafts')}
-            style={styles.halfBtn}
-          />
-          <GradientButton
-            variant="ghost"
-            label="📦 Inventory"
-            onPress={() => navigation.navigate('Inventory')}
-            style={styles.halfBtn}
-          />
+        {/* Chart */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Top Products Revenue</Text>
+          {hasChartData ? (
+            <LineChart
+              data={{
+                labels: chartLabels,
+                datasets: [{ data: chartData }],
+              }}
+              width={screenWidth - 48}
+              height={220}
+              yAxisLabel="₹"
+              chartConfig={{
+                backgroundColor: Colors.bg1,
+                backgroundGradientFrom: Colors.bg1,
+                backgroundGradientTo: Colors.bg1,
+                decimalPlaces: 0,
+                color: (opacity = 1) => `rgba(139, 92, 246, ${opacity})`,
+                labelColor: (opacity = 1) => `rgba(148, 163, 184, ${opacity})`,
+                style: { borderRadius: 16 },
+                propsForDots: { r: '4', strokeWidth: '2', stroke: Colors.primary },
+              }}
+              bezier
+              style={{ marginVertical: 8, borderRadius: 16 }}
+            />
+          ) : (
+            <View style={styles.emptyChart}>
+              <TrendingUp size={32} color={Colors.textMuted} style={{ opacity: 0.5, marginBottom: 8 }} />
+              <Text style={styles.emptyText}>No sales data yet</Text>
+            </View>
+          )}
         </View>
+
+        {/* Top Products List */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Top Selling Items</Text>
+          {hasChartData ? (
+            <View style={styles.listCard}>
+              {report!.top_products.slice(0, 5).map((p, i) => (
+                <View key={i} style={[styles.listItem, i === 0 && { borderTopWidth: 0 }]}>
+                  <View style={styles.listRank}>
+                    <Text style={styles.rankText}>#{i + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.itemName} numberOfLines={1}>{p.name}</Text>
+                    <Text style={styles.itemSub}>{p.quantity} sold</Text>
+                  </View>
+                  <Text style={styles.itemValue}>₹{p.revenue.toLocaleString()}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyList}>
+              <Text style={styles.emptyText}>Create your first bill to see top products</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Low Stock Alert */}
+        {lowStockItems.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: Colors.danger }]}>Low Stock Alert</Text>
+            <View style={[styles.listCard, { borderColor: Colors.danger + '40' }]}>
+              {lowStockItems.slice(0, 5).map((item, i) => (
+                <View key={item.id} style={[styles.listItem, i === 0 && { borderTopWidth: 0 }, { borderColor: Colors.danger + '20' }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.itemSub}>{item.category || 'Uncategorized'}</Text>
+                  </View>
+                  <View style={styles.dangerBadge}>
+                    <Text style={styles.dangerBadgeText}>{item.quantity} left</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.bg1,
-  },
-  header: {
-    paddingTop: 60,
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.lg,
-    backgroundColor: Colors.bg0,
-    borderBottomWidth: 1,
-    borderColor: Colors.border,
-  },
-  greeting: {
-    color: Colors.textPrimary,
-    fontSize: FontSize.xxl,
-    fontWeight: '800',
-  },
-  subtitle: {
-    color: Colors.textSecondary,
-    fontSize: FontSize.md,
-    marginTop: 4,
-  },
-  scroll: {
-    padding: Spacing.xl,
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.xxl,
-  },
-  metricCard: {
-    width: '47%',
-    padding: Spacing.lg,
-    borderRadius: Radius.lg,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  metricLabel: {
-    color: '#rgba(255,255,255,0.8)',
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    marginTop: Spacing.sm,
-  },
-  metricValue: {
-    color: '#fff',
-    fontSize: FontSize.xl,
-    fontWeight: 'bold',
-    marginTop: 4,
-  },
-  sectionTitle: {
-    color: Colors.textPrimary,
-    fontSize: FontSize.lg,
-    fontWeight: '700',
-    marginBottom: Spacing.md,
-  },
-  actionBtn: {
-    marginBottom: Spacing.md,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  halfBtn: {
-    width: '48%',
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: Radius.full,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  statusText: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
+  container: { flex: 1, backgroundColor: Colors.bg0 },
+  header: { paddingTop: 60, paddingHorizontal: 24, paddingBottom: 16, backgroundColor: Colors.bg1, borderBottomWidth: 1, borderColor: Colors.border },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  greeting: { color: Colors.text, fontSize: 24, fontWeight: 'bold' },
+  subtitle: { color: Colors.textMuted, fontSize: 14, marginTop: 4 },
+  refreshBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.bg2, justifyContent: 'center', alignItems: 'center' },
+  scroll: { padding: 24, paddingBottom: 40 },
+  errorBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.danger + '20', padding: 12, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: Colors.danger + '40' },
+  errorText: { color: Colors.danger, marginLeft: 8, fontSize: 14, flex: 1 },
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 24 },
+  kpiCard: { width: '48%', backgroundColor: Colors.bg1, padding: 16, borderRadius: 16, marginBottom: 16, borderWidth: 1, borderColor: Colors.border },
+  kpiIcon: { marginBottom: 12 },
+  kpiLabel: { color: Colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 },
+  kpiValue: { color: Colors.text, fontSize: 24, fontWeight: 'bold' },
+  section: { marginBottom: 24 },
+  sectionTitle: { color: Colors.text, fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
+  emptyChart: { height: 220, backgroundColor: Colors.bg1, borderRadius: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
+  emptyList: { backgroundColor: Colors.bg1, padding: 24, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: Colors.border },
+  emptyText: { color: Colors.textMuted, fontSize: 14 },
+  listCard: { backgroundColor: Colors.bg1, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden' },
+  listItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderTopWidth: 1, borderColor: Colors.border },
+  listRank: { width: 32, height: 32, borderRadius: 8, backgroundColor: Colors.primary + '20', justifyContent: 'center', alignItems: 'center' },
+  rankText: { color: Colors.primary, fontSize: 12, fontWeight: 'bold' },
+  itemName: { color: Colors.text, fontSize: 14, fontWeight: 'bold', marginBottom: 2 },
+  itemSub: { color: Colors.textMuted, fontSize: 12 },
+  itemValue: { color: Colors.success, fontSize: 14, fontWeight: 'bold' },
+  dangerBadge: { backgroundColor: Colors.danger + '20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  dangerBadgeText: { color: Colors.danger, fontSize: 12, fontWeight: 'bold' },
 });

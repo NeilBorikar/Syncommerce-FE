@@ -6,21 +6,31 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../store/AuthContext';
 import { Colors } from '../theme/colors';
-import { Home, FileText, Clock, Settings as SettingsIcon } from 'lucide-react-native';
+import { Home, FileText, Clock, Settings as SettingsIcon, Users, BarChart2, Package } from 'lucide-react-native';
 
 // Screens
-import LoginScreen from '../screens/LoginScreen';
+import WorkspaceAuthScreen from '../screens/WorkspaceAuthScreen';
+import UserAuthScreen from '../screens/UserAuthScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import BillsScreen from '../screens/BillsScreen';
 import DraftsScreen from '../screens/DraftsScreen';
 import CreateBillScreen from '../screens/CreateBillScreen';
 import InventoryScreen from '../screens/InventoryScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import CustomerLookupScreen from '../screens/CustomerLookupScreen';
+import EmployeesScreen from '../screens/EmployeesScreen';
+import ReportsScreen from '../screens/ReportsScreen';
+import CustomersScreen from '../screens/CustomersScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function MainTabs() {
+  const { user } = useAuth();
+  const role = user?.role || 'worker';
+  
+  const isManagerOrOwner = role === 'manager' || role === 'owner';
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -44,6 +54,18 @@ function MainTabs() {
           tabBarIcon: ({ color, size }) => <Home color={color} size={size} />,
         }}
       />
+      
+      {isManagerOrOwner && (
+        <Tab.Screen
+          name="ReportsTab"
+          component={ReportsScreen}
+          options={{
+            tabBarLabel: 'Reports',
+            tabBarIcon: ({ color, size }) => <BarChart2 color={color} size={size} />,
+          }}
+        />
+      )}
+      
       <Tab.Screen
         name="BillsTab"
         component={BillsScreen}
@@ -52,14 +74,18 @@ function MainTabs() {
           tabBarIcon: ({ color, size }) => <FileText color={color} size={size} />,
         }}
       />
-      <Tab.Screen
-        name="DraftsTab"
-        component={DraftsScreen}
-        options={{
-          tabBarLabel: 'Drafts',
-          tabBarIcon: ({ color, size }) => <Clock color={color} size={size} />,
-        }}
-      />
+      
+      {isManagerOrOwner && (
+        <Tab.Screen
+          name="EmployeesTab"
+          component={EmployeesScreen}
+          options={{
+            tabBarLabel: 'Team',
+            tabBarIcon: ({ color, size }) => <Users color={color} size={size} />,
+          }}
+        />
+      )}
+      
       <Tab.Screen
         name="SettingsTab"
         component={SettingsScreen}
@@ -73,7 +99,7 @@ function MainTabs() {
 }
 
 export default function AppNavigator() {
-  const { loading, token } = useAuth();
+  const { loading, businessToken, userToken } = useAuth();
 
   if (loading) {
     return (
@@ -86,24 +112,18 @@ export default function AppNavigator() {
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-        {token ? (
-          <>
-            {/* Tabs for main navigation */}
-            <Stack.Screen name="Main" component={MainTabs} />
-            
-            {/* Modals / Deep links */}
-            <Stack.Screen 
-              name="CreateBill" 
-              component={CreateBillScreen} 
-              options={{ presentation: 'modal' }}
-            />
-            <Stack.Screen 
-              name="Inventory" 
-              component={InventoryScreen} 
-            />
-          </>
+        {!businessToken ? (
+          <Stack.Screen name="WorkspaceAuth" component={WorkspaceAuthScreen} />
+        ) : !userToken ? (
+          <Stack.Screen name="UserAuth" component={UserAuthScreen} />
         ) : (
-          <Stack.Screen name="Login" component={LoginScreen} />
+          <>
+            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen name="CreateBill" component={CreateBillScreen} options={{ presentation: 'modal' }} />
+            <Stack.Screen name="Inventory" component={InventoryScreen} />
+            <Stack.Screen name="Customers" component={CustomersScreen} />
+            <Stack.Screen name="CustomerLookup" component={CustomerLookupScreen} options={{ presentation: 'modal' }} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>

@@ -7,7 +7,7 @@ export const Colors = {
   accentDark: '#00A884',
   warning: '#FFB547',
   danger: '#FF5A5F',
-  success: '#00D4AA',
+  success: '#4CAF50',
 
   // Background layers
   bg0: '#0A0B14',   // deepest
@@ -25,9 +25,10 @@ export const Colors = {
   borderLight: '#353A60',
 
   // Text
+  text: '#FFFFFF',           // shorthand alias
   textPrimary: '#FFFFFF',
   textSecondary: '#A0A8CC',
-  textMuted: '#5C6285',
+  textMuted: '#6B7280',
   textOnAccent: '#FFFFFF',
 
   // Gradients (as arrays for LinearGradient)

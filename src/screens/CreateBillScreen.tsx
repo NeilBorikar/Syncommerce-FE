@@ -1,37 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-  TouchableOpacity,
-} from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, TextInput } from 'react-native';
 import { useAuth } from '../store/AuthContext';
 import { billService } from '../services/billService';
 import { draftService } from '../services/draftService';
-import StyledInput from '../components/StyledInput';
-import GradientButton from '../components/GradientButton';
 import { BillItem, Draft } from '../types';
-import { Colors, Radius, Spacing, FontSize } from '../theme/colors';
-import { PlusCircle, Trash2, Printer } from 'lucide-react-native';
+import { Colors } from '../theme/colors';
+import { Plus, Trash2, Save, CheckCircle, User, Phone, Package, Tag, Percent, Hash, FileText } from 'lucide-react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { generateBillHTML } from '../utils/pdfTemplate';
 
 export default function CreateBillScreen({ route, navigation }: any) {
-  const { user, business_id } = useAuth();
-  
-  // Optional draft data passed from DraftsScreen
+  const { user, business } = useAuth();
   const draftData: Draft | undefined = route.params?.draftData;
 
   const [customerName, setCustomerName] = useState(draftData?.customer_name || '');
   const [customerPhone, setCustomerPhone] = useState(draftData?.customer_phone || '');
   const [items, setItems] = useState<BillItem[]>(draftData?.items || []);
   
-  // Temporary item inputs
   const [itemName, setItemName] = useState('');
   const [itemQty, setItemQty] = useState('1');
   const [itemPrice, setItemPrice] = useState('');
@@ -54,9 +40,7 @@ export default function CreateBillScreen({ route, navigation }: any) {
     }
 
     setItems([...items, { name: itemName, quantity: qty, price }]);
-    setItemName('');
-    setItemQty('1');
-    setItemPrice('');
+    setItemName(''); setItemQty('1'); setItemPrice('');
   };
 
   const removeItem = (index: number) => {
@@ -68,7 +52,7 @@ export default function CreateBillScreen({ route, navigation }: any) {
   const total = subtotal - (parseFloat(discount) || 0) + (parseFloat(tax) || 0);
 
   const getPayload = () => ({
-    business_id: business_id!,
+    business_id: business!.id,
     created_by: user!.name,
     customer_name: customerName,
     customer_phone: customerPhone,
@@ -79,17 +63,15 @@ export default function CreateBillScreen({ route, navigation }: any) {
   });
 
   const handleSaveDraft = async () => {
-    if (!business_id) return;
+    if (!business?.id) return;
     try {
       setLoading(true);
       if (draftData?.id) {
         await draftService.updateDraft(draftData.id, { ...getPayload(), user_id: user?.id });
       } else {
-        await draftService.createDraft(getPayload());
+        await draftService.createDraft({ ...getPayload(), user_id: user?.id });
       }
-      Alert.alert('Success', 'Draft saved successfully!', [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
+      Alert.alert('Success', 'Draft saved successfully!', [{ text: 'OK', onPress: () => navigation.goBack() }]);
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {
@@ -98,26 +80,20 @@ export default function CreateBillScreen({ route, navigation }: any) {
   };
 
   const handleCreateBill = async () => {
-    if (items.length === 0) {
-      Alert.alert('Error', 'Please add at least one item to the bill');
-      return;
-    }
-    if (!business_id) return;
+    if (items.length === 0) return Alert.alert('Error', 'Please add at least one item');
+    if (!business?.id) return;
 
     try {
       setLoading(true);
       const newBill = await billService.createBill(getPayload());
       
-      // If we resumed from a draft, it's good practice to delete it or mark it done.
-      // Assuming draft isn't deleted automatically, we just proceed.
-      
       Alert.alert(
         'Bill Created! 🎉',
-        'Would you like to Print or Save it as a PDF now?',
+        'Would you like to print or share the invoice?',
         [
           { text: 'No, Thanks', style: 'cancel', onPress: () => navigation.goBack() },
           { 
-            text: 'Print / Save PDF', 
+            text: 'Share / Print', 
             onPress: async () => {
               const html = generateBillHTML(newBill);
               const { uri } = await Print.printToFileAsync({ html });
@@ -135,73 +111,110 @@ export default function CreateBillScreen({ route, navigation }: any) {
   };
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
-        <Text style={styles.title}>{draftData ? 'Resume Draft' : 'New Bill'}</Text>
-        <Text style={styles.subtitle}>Fill in details to generate invoice</Text>
+        <Text style={styles.title}>{draftData ? 'Resume Draft' : 'New Invoice'}</Text>
+        <Text style={styles.subtitle}>Fill details to generate a bill</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Customer Details */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Customer Details</Text>
-          <StyledInput label="Name" value={customerName} onChangeText={setCustomerName} placeholder="Walk-in Customer" />
-          <StyledInput label="Phone" value={customerPhone} onChangeText={setCustomerPhone} placeholder="Optional" keyboardType="phone-pad" />
+          <Text style={styles.sectionTitle}>Customer Info</Text>
+          <View style={styles.inputContainer}>
+            <User size={20} color={Colors.textMuted} style={styles.inputIcon} />
+            <TextInput style={styles.input} placeholder="Customer Name (Optional)" placeholderTextColor={Colors.textMuted} value={customerName} onChangeText={setCustomerName} />
+          </View>
+          <View style={styles.inputContainer}>
+            <Phone size={20} color={Colors.textMuted} style={styles.inputIcon} />
+            <TextInput style={styles.input} placeholder="Phone Number (Optional)" placeholderTextColor={Colors.textMuted} value={customerPhone} onChangeText={setCustomerPhone} keyboardType="phone-pad" />
+          </View>
         </View>
 
         {/* Items List */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Items ({items.length})</Text>
+          <Text style={styles.sectionTitle}>Invoice Items</Text>
           {items.map((item, index) => (
             <View key={index} style={styles.itemRow}>
               <View style={styles.itemInfo}>
                 <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemMeta}>{item.quantity} x ₹{item.price}</Text>
+                <Text style={styles.itemMeta}>{item.quantity} x ₹{item.price.toLocaleString()}</Text>
               </View>
-              <Text style={styles.itemTotal}>₹{(item.quantity * item.price).toLocaleString('en-IN')}</Text>
+              <Text style={styles.itemTotal}>₹{(item.quantity * item.price).toLocaleString()}</Text>
               <TouchableOpacity onPress={() => removeItem(index)} style={styles.deleteBtn}>
-                <Trash2 color={Colors.danger} size={20} />
+                <Trash2 color={Colors.danger} size={18} />
               </TouchableOpacity>
             </View>
           ))}
 
           {/* Add Item Form */}
           <View style={styles.addItemForm}>
-            <StyledInput style={{ flex: 2, marginRight: Spacing.sm, marginBottom: 0 }} placeholder="Item Name" value={itemName} onChangeText={setItemName} />
-            <StyledInput style={{ flex: 1, marginRight: Spacing.sm, marginBottom: 0 }} placeholder="Qty" value={itemQty} onChangeText={setItemQty} keyboardType="numeric" />
-            <StyledInput style={{ flex: 1.5, marginBottom: 0 }} placeholder="Price" value={itemPrice} onChangeText={setItemPrice} keyboardType="numeric" />
+            <View style={styles.addItemRow}>
+              <View style={[styles.inputContainer, { flex: 2, marginRight: 8, marginBottom: 8 }]}>
+                <Package size={16} color={Colors.textMuted} style={styles.inputIconSmall} />
+                <TextInput style={styles.inputSmall} placeholder="Item Name" placeholderTextColor={Colors.textMuted} value={itemName} onChangeText={setItemName} />
+              </View>
+              <View style={[styles.inputContainer, { flex: 1, marginBottom: 8 }]}>
+                <Tag size={16} color={Colors.textMuted} style={styles.inputIconSmall} />
+                <TextInput style={styles.inputSmall} placeholder="Qty" placeholderTextColor={Colors.textMuted} value={itemQty} onChangeText={setItemQty} keyboardType="numeric" />
+              </View>
+            </View>
+            <View style={styles.addItemRow}>
+              <View style={[styles.inputContainer, { flex: 1, marginRight: 8, marginBottom: 0 }]}>
+                <Text style={[styles.inputIconSmall, { color: Colors.textMuted }]}>₹</Text>
+                <TextInput style={styles.inputSmall} placeholder="Price per unit" placeholderTextColor={Colors.textMuted} value={itemPrice} onChangeText={setItemPrice} keyboardType="numeric" />
+              </View>
+              <TouchableOpacity style={styles.addBtn} onPress={addItem}>
+                <Plus color={Colors.primary} size={18} style={{ marginRight: 6 }} />
+                <Text style={styles.addBtnText}>Add to Bill</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <TouchableOpacity style={styles.addBtn} onPress={addItem}>
-            <PlusCircle color={Colors.accent} size={20} style={{ marginRight: 8 }} />
-            <Text style={styles.addBtnText}>Add Item</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Totals & Discounts */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Summary</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <StyledInput style={{ flex: 1, marginRight: Spacing.sm }} label="Discount (₹)" value={discount} onChangeText={setDiscount} keyboardType="numeric" />
-            <StyledInput style={{ flex: 1 }} label="Tax (₹)" value={tax} onChangeText={setTax} keyboardType="numeric" />
+          <Text style={styles.sectionTitle}>Summary & Taxes</Text>
+          <View style={styles.addItemRow}>
+            <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+              <Percent size={16} color={Colors.textMuted} style={styles.inputIconSmall} />
+              <TextInput style={styles.inputSmall} placeholder="Discount (₹)" placeholderTextColor={Colors.textMuted} value={discount} onChangeText={setDiscount} keyboardType="numeric" />
+            </View>
+            <View style={[styles.inputContainer, { flex: 1 }]}>
+              <Hash size={16} color={Colors.textMuted} style={styles.inputIconSmall} />
+              <TextInput style={styles.inputSmall} placeholder="GST Tax (₹)" placeholderTextColor={Colors.textMuted} value={tax} onChangeText={setTax} keyboardType="numeric" />
+            </View>
           </View>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Subtotal</Text>
-            <Text style={styles.totalValue}>₹{subtotal.toLocaleString('en-IN')}</Text>
-          </View>
-          <View style={styles.totalRowMain}>
-            <Text style={styles.mainTotalLabel}>Grand Total</Text>
-            <Text style={styles.mainTotalValue}>₹{Math.max(total, 0).toLocaleString('en-IN')}</Text>
+          
+          <View style={styles.totalsBox}>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Subtotal</Text>
+              <Text style={styles.totalValue}>₹{subtotal.toLocaleString()}</Text>
+            </View>
+            <View style={styles.totalRowMain}>
+              <Text style={styles.mainTotalLabel}>Grand Total</Text>
+              <Text style={styles.mainTotalValue}>₹{Math.max(total, 0).toLocaleString()}</Text>
+            </View>
           </View>
         </View>
 
         <View style={styles.section}>
-          <StyledInput label="Notes" value={notes} onChangeText={setNotes} placeholder="Add a note or remark..." multiline />
+          <View style={styles.inputContainer}>
+            <FileText size={20} color={Colors.textMuted} style={styles.inputIcon} />
+            <TextInput style={[styles.input, { height: 80 }]} placeholder="Notes or remarks..." placeholderTextColor={Colors.textMuted} value={notes} onChangeText={setNotes} multiline textAlignVertical="top" />
+          </View>
         </View>
 
         {/* Action Buttons */}
         <View style={styles.actions}>
-          <GradientButton variant="ghost" label="Save as Draft" onPress={handleSaveDraft} loading={loading} style={{ flex: 1, marginRight: Spacing.md }} />
-          <GradientButton variant="primary" label="Create Bill" onPress={handleCreateBill} loading={loading} style={{ flex: 1.5 }} />
+          <TouchableOpacity style={[styles.draftBtn, loading && { opacity: 0.7 }]} onPress={handleSaveDraft} disabled={loading}>
+            <Save size={20} color={Colors.primary} style={{ marginRight: 8 }} />
+            <Text style={styles.draftBtnText}>Save Draft</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.createBtn, loading && { opacity: 0.7 }]} onPress={handleCreateBill} disabled={loading}>
+            <CheckCircle size={20} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.createBtnText}>Generate Bill</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -209,43 +222,38 @@ export default function CreateBillScreen({ route, navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.bg1 },
-  header: {
-    paddingTop: 60, paddingHorizontal: Spacing.xl, paddingBottom: Spacing.lg,
-    backgroundColor: Colors.bg0, borderBottomWidth: 1, borderColor: Colors.border,
-  },
-  title: { color: Colors.textPrimary, fontSize: FontSize.xxl, fontWeight: '800' },
-  subtitle: { color: Colors.textSecondary, fontSize: FontSize.sm, marginTop: 4 },
-  scroll: { padding: Spacing.xl, paddingBottom: 100 },
-  section: {
-    backgroundColor: Colors.bg2, padding: Spacing.lg, borderRadius: Radius.lg,
-    borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing.xl,
-  },
-  sectionTitle: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '700', marginBottom: Spacing.md, letterSpacing: 0.5 },
-  itemRow: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.bg3,
-    padding: Spacing.md, borderRadius: Radius.md, marginBottom: Spacing.sm,
-  },
+  container: { flex: 1, backgroundColor: Colors.bg0 },
+  header: { paddingTop: 60, paddingHorizontal: 24, paddingBottom: 16, backgroundColor: Colors.bg1, borderBottomWidth: 1, borderColor: Colors.border },
+  title: { color: Colors.text, fontSize: 24, fontWeight: 'bold' },
+  subtitle: { color: Colors.textMuted, fontSize: 14, marginTop: 4 },
+  scroll: { padding: 24, paddingBottom: 100 },
+  section: { backgroundColor: Colors.bg1, padding: 20, borderRadius: 16, borderWidth: 1, borderColor: Colors.border, marginBottom: 20 },
+  sectionTitle: { color: Colors.text, fontSize: 16, fontWeight: 'bold', marginBottom: 16 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.bg2, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: Colors.border },
+  inputIcon: { padding: 16, paddingRight: 8 },
+  inputIconSmall: { padding: 12, paddingRight: 4 },
+  input: { flex: 1, color: Colors.text, fontSize: 16, paddingVertical: 16, paddingRight: 16 },
+  inputSmall: { flex: 1, color: Colors.text, fontSize: 14, paddingVertical: 12, paddingRight: 12 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.bg2, padding: 16, borderRadius: 12, marginBottom: 8, borderWidth: 1, borderColor: Colors.border },
   itemInfo: { flex: 1 },
-  itemName: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '600' },
-  itemMeta: { color: Colors.textMuted, fontSize: FontSize.sm, marginTop: 2 },
-  itemTotal: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '700', marginRight: Spacing.md },
-  deleteBtn: { padding: 8, backgroundColor: 'rgba(255,90,95,0.1)', borderRadius: Radius.sm },
-  addItemForm: { flexDirection: 'row', marginTop: Spacing.sm },
-  addBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingVertical: Spacing.md, marginTop: Spacing.md, borderRadius: Radius.md,
-    borderWidth: 1, borderColor: Colors.accent, borderStyle: 'dashed',
-  },
-  addBtnText: { color: Colors.accent, fontSize: FontSize.md, fontWeight: '600' },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.sm },
-  totalLabel: { color: Colors.textSecondary, fontSize: FontSize.md },
-  totalValue: { color: Colors.textPrimary, fontSize: FontSize.md, fontWeight: '600' },
-  totalRowMain: {
-    flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.sm,
-    paddingTop: Spacing.md, borderTopWidth: 1, borderColor: Colors.border,
-  },
-  mainTotalLabel: { color: Colors.textPrimary, fontSize: FontSize.lg, fontWeight: '800' },
-  mainTotalValue: { color: Colors.primary, fontSize: FontSize.xl, fontWeight: '900' },
-  actions: { flexDirection: 'row', justifyContent: 'space-between' },
+  itemName: { color: Colors.text, fontSize: 15, fontWeight: 'bold' },
+  itemMeta: { color: Colors.textMuted, fontSize: 13, marginTop: 4 },
+  itemTotal: { color: Colors.text, fontSize: 15, fontWeight: 'bold', marginRight: 16 },
+  deleteBtn: { padding: 8, backgroundColor: Colors.danger + '15', borderRadius: 8 },
+  addItemForm: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderColor: Colors.border },
+  addItemRow: { flexDirection: 'row' },
+  addBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primary + '15', borderRadius: 12, borderWidth: 1, borderColor: Colors.primary + '30', borderStyle: 'dashed' },
+  addBtnText: { color: Colors.primary, fontSize: 14, fontWeight: 'bold' },
+  totalsBox: { backgroundColor: Colors.bg2, padding: 16, borderRadius: 12, marginTop: 8 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  totalLabel: { color: Colors.textMuted, fontSize: 14 },
+  totalValue: { color: Colors.text, fontSize: 14, fontWeight: 'bold' },
+  totalRowMain: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 12, borderTopWidth: 1, borderColor: Colors.border },
+  mainTotalLabel: { color: Colors.text, fontSize: 18, fontWeight: 'bold' },
+  mainTotalValue: { color: Colors.success, fontSize: 20, fontWeight: 'bold' },
+  actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
+  draftBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.bg1, paddingVertical: 16, borderRadius: 12, marginRight: 12, borderWidth: 1, borderColor: Colors.primary },
+  draftBtnText: { color: Colors.primary, fontSize: 16, fontWeight: 'bold' },
+  createBtn: { flex: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primary, paddingVertical: 16, borderRadius: 12 },
+  createBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });
