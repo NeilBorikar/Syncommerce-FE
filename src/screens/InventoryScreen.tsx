@@ -6,7 +6,7 @@ import { InventoryItem } from '../types';
 import { Colors } from '../theme/colors';
 import { Package, Plus, Search, AlertTriangle, X, Tag, DollarSign, Layers } from 'lucide-react-native';
 
-export default function InventoryScreen() {
+export default function InventoryScreen({ route }: any) {
   const { business } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +39,15 @@ export default function InventoryScreen() {
   useEffect(() => {
     loadInventory();
   }, [loadInventory]);
+
+  // Auto-open modal if redirected from CreateBillScreen with addItemName
+  useEffect(() => {
+    const addItemName = route?.params?.addItemName;
+    if (addItemName) {
+      setName(addItemName);
+      setModalVisible(true);
+    }
+  }, [route?.params?.addItemName]);
 
   const handleAddItem = async () => {
     if (!name || !price || !quantity) return Alert.alert('Error', 'Name, Price, and Quantity are required');

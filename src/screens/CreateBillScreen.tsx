@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, TextInput } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, TextInput, FlatList } from 'react-native';
 import { useAuth } from '../store/AuthContext';
 import { billService } from '../services/billService';
 import { draftService } from '../services/draftService';
-import { BillItem, Draft } from '../types';
+import { inventoryService } from '../services/inventoryService';
+import { BillItem, Draft, InventoryItem } from '../types';
 import { Colors } from '../theme/colors';
-import { Plus, Trash2, Save, CheckCircle, User, Phone, Package, Tag, Percent, Hash, FileText } from 'lucide-react-native';
+import { Plus, Trash2, Save, CheckCircle, User, Phone, Package, Tag, Percent, Hash, FileText, ArrowRight } from 'lucide-react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { generateBillHTML } from '../utils/pdfTemplate';
@@ -27,6 +28,37 @@ export default function CreateBillScreen({ route, navigation }: any) {
   const [notes, setNotes] = useState(draftData?.notes || '');
   const [loading, setLoading] = useState(false);
 
+  // Inventory autocomplete state
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [inventoryLoaded, setInventoryLoaded] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Load inventory for autocomplete
+  const loadInventory = useCallback(async () => {
+    if (inventoryLoaded || !business?.id) return;
+    try {
+      const data = await inventoryService.getInventory(business.id);
+      setInventory(data);
+    } catch (e) { console.error(e); }
+    setInventoryLoaded(true);
+  }, [business?.id, inventoryLoaded]);
+
+  useEffect(() => {
+    if (business?.id) loadInventory();
+  }, [business?.id]);
+
+  // Filtered suggestions
+  const suggestions = itemName.length > 0
+    ? inventory.filter(i => i.name.toLowerCase().includes(itemName.toLowerCase()))
+    : [];
+  const hasExactMatch = inventory.some(i => i.name.toLowerCase() === itemName.toLowerCase());
+
+  const selectSuggestion = (item: InventoryItem) => {
+    setItemName(item.name);
+    setItemPrice((item.selling_price || item.price)?.toString() || '');
+    setShowSuggestions(false);
+  };
+
   const addItem = () => {
     if (!itemName || !itemPrice || !itemQty) {
       Alert.alert('Incomplete', 'Please fill all item fields');
@@ -41,6 +73,7 @@ export default function CreateBillScreen({ route, navigation }: any) {
 
     setItems([...items, { name: itemName, quantity: qty, price }]);
     setItemName(''); setItemQty('1'); setItemPrice('');
+    setShowSuggestions(false);
   };
 
   const removeItem = (index: number) => {
@@ -117,7 +150,7 @@ export default function CreateBillScreen({ route, navigation }: any) {
         <Text style={styles.subtitle}>Fill details to generate a bill</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {/* Customer Details */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Customer Info</Text>
@@ -147,18 +180,72 @@ export default function CreateBillScreen({ route, navigation }: any) {
             </View>
           ))}
 
-          {/* Add Item Form */}
+          {/* Add Item Form with Autocomplete */}
           <View style={styles.addItemForm}>
             <View style={styles.addItemRow}>
-              <View style={[styles.inputContainer, { flex: 2, marginRight: 8, marginBottom: 8 }]}>
+              <View style={[styles.inputContainer, { flex: 2, marginRight: 8, marginBottom: 8, zIndex: 10 }]}>
                 <Package size={16} color={Colors.textMuted} style={styles.inputIconSmall} />
-                <TextInput style={styles.inputSmall} placeholder="Item Name" placeholderTextColor={Colors.textMuted} value={itemName} onChangeText={setItemName} />
+                <TextInput
+                  style={styles.inputSmall}
+                  placeholder="Type item name..."
+                  placeholderTextColor={Colors.textMuted}
+                  value={itemName}
+                  onChangeText={(text) => { setItemName(text); setShowSuggestions(true); }}
+                  onFocus={() => { loadInventory(); setShowSuggestions(true); }}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                />
               </View>
               <View style={[styles.inputContainer, { flex: 1, marginBottom: 8 }]}>
                 <Tag size={16} color={Colors.textMuted} style={styles.inputIconSmall} />
                 <TextInput style={styles.inputSmall} placeholder="Qty" placeholderTextColor={Colors.textMuted} value={itemQty} onChangeText={setItemQty} keyboardType="numeric" />
               </View>
             </View>
+
+            {/* Autocomplete Dropdown */}
+            {showSuggestions && itemName.length > 0 && (
+              <View style={styles.suggestionsContainer}>
+                {suggestions.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.suggestionItem}
+                    onPress={() => selectSuggestion(item)}
+                  >
+                    <View style={styles.suggestionLeft}>
+                      <Package size={14} color={Colors.primary} />
+                      <Text style={styles.suggestionName} numberOfLines={1}>{item.name}</Text>
+                      {item.quantity <= (item.low_stock_threshold || 5) && (
+                        <View style={styles.lowBadge}>
+                          <Text style={styles.lowBadgeText}>Low</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.suggestionRight}>
+                      <Text style={styles.suggestionStock}>{item.quantity} {item.unit || 'pcs'}</Text>
+                      <Text style={styles.suggestionPrice}>₹{(item.selling_price || item.price)?.toLocaleString()}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+
+                {!hasExactMatch && itemName.trim().length > 0 && (
+                  <TouchableOpacity
+                    style={styles.addToInventoryBtn}
+                    onPress={() => {
+                      setShowSuggestions(false);
+                      navigation.navigate('Inventory', { addItemName: itemName.trim() });
+                    }}
+                  >
+                    <Plus size={14} color={Colors.accent || '#a855f7'} />
+                    <Text style={styles.addToInventoryText}>
+                      Add "<Text style={{ fontWeight: 'bold' }}>{itemName.trim()}</Text>" to Inventory
+                    </Text>
+                    <ArrowRight size={14} color={Colors.accent || '#a855f7'} />
+                  </TouchableOpacity>
+                )}
+
+                {suggestions.length === 0 && hasExactMatch && null}
+              </View>
+            )}
+
             <View style={styles.addItemRow}>
               <View style={[styles.inputContainer, { flex: 1, marginRight: 8, marginBottom: 0 }]}>
                 <Text style={[styles.inputIconSmall, { color: Colors.textMuted }]}>₹</Text>
@@ -244,6 +331,18 @@ const styles = StyleSheet.create({
   addItemRow: { flexDirection: 'row' },
   addBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primary + '15', borderRadius: 12, borderWidth: 1, borderColor: Colors.primary + '30', borderStyle: 'dashed' },
   addBtnText: { color: Colors.primary, fontSize: 14, fontWeight: 'bold' },
+  // Autocomplete styles
+  suggestionsContainer: { backgroundColor: Colors.bg2, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, marginBottom: 8, overflow: 'hidden', maxHeight: 200 },
+  suggestionItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 1, borderColor: Colors.border },
+  suggestionLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  suggestionName: { color: Colors.text, fontSize: 14, fontWeight: '600', flex: 1 },
+  lowBadge: { backgroundColor: '#f59e0b22', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  lowBadgeText: { color: '#f59e0b', fontSize: 10, fontWeight: 'bold' },
+  suggestionRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  suggestionStock: { color: Colors.textMuted, fontSize: 12 },
+  suggestionPrice: { color: Colors.success, fontSize: 13, fontWeight: 'bold' },
+  addToInventoryBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 12, borderTopWidth: 1, borderColor: Colors.border },
+  addToInventoryText: { color: '#a855f7', fontSize: 13, flex: 1 },
   totalsBox: { backgroundColor: Colors.bg2, padding: 16, borderRadius: 12, marginTop: 8 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   totalLabel: { color: Colors.textMuted, fontSize: 14 },
@@ -257,3 +356,4 @@ const styles = StyleSheet.create({
   createBtn: { flex: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primary, paddingVertical: 16, borderRadius: 12 },
   createBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });
+

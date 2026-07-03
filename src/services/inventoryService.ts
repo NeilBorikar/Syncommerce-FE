@@ -3,7 +3,7 @@ import { InventoryItem } from '../types';
 
 export const inventoryService = {
   getInventory: async (business_id: string) => {
-    const res = await API.get(`/inventory/${business_id}`);
+    const res = await API.get(`/inventory/?business_id=${business_id}`);
     return Array.isArray(res.data) ? res.data : [];
   },
   getLowStock: async (business_id: string) => {
